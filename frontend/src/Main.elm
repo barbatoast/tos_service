@@ -1,96 +1,151 @@
-module Main exposing (..)
+port module Main exposing (main)
 
 import Browser
-import Html exposing (Html, div, h1, table, thead, tbody, tr, td, th, text)
+import Html exposing (Html, div, text, input, button)
 import Html.Attributes exposing (..)
+import Html.Events exposing (onInput, onClick)
 import Http
+import Json.Encode as Encode
 import Json.Decode as Decode
+
+
+-- PORTS
+
+port saveToken : String -> Cmd msg
+port loadToken : () -> Cmd msg
+port sendToken : String -> Cmd msg
+port receiveToken : (String -> msg) -> Sub msg
+port clearToken : () -> Cmd msg
 
 
 -- MODEL
 
-type alias User =
-    { id : String
-    , email : String
-    , name : String
+type alias Model =
+    { username : String
+    , password : String
+    , token : Maybe String
+    , message : String
     }
 
-type alias Model =
-    { users : List User
-    , error : Maybe String
-    }
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { users = [], error = Nothing }
-    , fetchUsers
+    ( { username = "", password = "", token = Nothing, message = "" }
+    , loadToken ()
     )
+
+
+-- MESSAGES
+
+type Msg
+    = SetUsername String
+    | SetPassword String
+    | SubmitLogin
+    | GotLogin (Result Http.Error String)
+    | Logout
+    | ReceiveStoredToken String
+    | MakeProtectedRequest
+    | GotProtectedResponse (Result Http.Error String)
+
+fetchProtectedResource : String -> Cmd Msg
+fetchProtectedResource token =
+    Http.request
+        { method = "GET"
+        , headers = [ Http.header "Authorization" ("Bearer " ++ token) ]
+        , url = "http://127.0.0.1:5000/users"
+        , body = Http.emptyBody
+        , expect = Http.expectString GotProtectedResponse
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    receiveToken ReceiveStoredToken
 
 
 -- UPDATE
 
-type Msg
-    = GotUsers (Result Http.Error (List User))
-
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        GotUsers (Ok users) ->
-            ( { model | users = users }, Cmd.none )
+        SetUsername u -> ( { model | username = u }, Cmd.none )
 
-        GotUsers (Err e) ->
-            ( { model | error = Just (Debug.toString e) }, Cmd.none )
+        SetPassword p -> ( { model | password = p }, Cmd.none )
+
+        SubmitLogin ->
+            ( model, loginRequest model.username model.password )
+
+        GotLogin (Ok token) ->
+            ( { model | token = Just token, message = "Login OK" }
+            , saveToken token
+            )
+
+        GotLogin (Err err) ->
+            ( { model | message = "Login failed: " ++ Debug.toString err }, Cmd.none )
+
+        Logout ->
+            ( { model | token = Nothing, message = "Logged out" }, clearToken () )
+
+        MakeProtectedRequest ->
+            case model.token of
+                Just token ->
+                    ( model, fetchProtectedResource token )
+
+                Nothing ->
+                    ( { model | message = "Not logged in" }, Cmd.none )
+
+        ReceiveStoredToken tokenStr ->
+            let
+                token =
+                    if String.isEmpty tokenStr then
+                        Nothing
+                    else
+                        Just tokenStr
+            in
+            ( { model | token = token, message = if token /= Nothing then "Restored token" else "No token in storage" }
+            , Cmd.none
+            )
+
+        GotProtectedResponse (Ok body) ->
+            ( { model | message = "Protected call success: " ++ body }, Cmd.none )
+
+        GotProtectedResponse (Err _) ->
+            ( { model | message = "Protected call failed." }, Cmd.none )
 
 
 -- VIEW
 
 view : Model -> Html Msg
 view model =
-    div [ class "container" ]
-        [ h1 [] [ text "ToS Agreement Tracker" ]
-        , table []
-            [ thead []
-                [ tr []
-                    [ th [] [ text "Name" ]
-                    , th [] [ text "Email" ]
-                    , th [] [ text "User ID" ]
-                    ]
-                ]
-            , tbody []
-                (List.map viewUser model.users)
-            ]
-        , case model.error of
-            Just err -> div [ style "color" "red" ] [ text err ]
-            Nothing -> text ""
-        ]
+    div []
+        [ input [ placeholder "Username", value model.username, onInput SetUsername ] []
+        , input [ placeholder "Password", type_ "password", value model.password, onInput SetPassword ] []
+        , button [ onClick SubmitLogin ] [ text "Login" ]
 
-viewUser : User -> Html msg
-viewUser u =
-    tr []
-        [ td [] [ text u.name ]
-        , td [] [ text u.email ]
-        , td [] [ text u.id ]
+        , case model.token of
+            Just token ->
+                div []
+                    [ div [] [ text ("✅ Token found: " ++ token) ]
+                    , button [ onClick MakeProtectedRequest ] [ text "Make Protected API Call" ]
+                    , button [ onClick Logout ] [ text "Logout" ]
+                    ]
+            Nothing ->
+                div [] [ text "🔒 Not logged in." ]
+
+        , div [] [ text model.message ]
         ]
 
 
 -- HTTP
 
-userDecoder : Decode.Decoder User
-userDecoder =
-    Decode.map3 User
-        (Decode.field "id" Decode.string)
-        (Decode.field "email" Decode.string)
-        (Decode.field "name" Decode.string)
-
-usersDecoder : Decode.Decoder (List User)
-usersDecoder =
-    Decode.list userDecoder
-
-fetchUsers : Cmd Msg
-fetchUsers =
-    Http.get
-        { url = "http://127.0.0.1:5000/users"
-        , expect = Http.expectJson GotUsers usersDecoder
+loginRequest : String -> String -> Cmd Msg
+loginRequest u p =
+    Http.post
+        { url = "http://127.0.0.1:5000/login"
+        , body = Http.jsonBody <| Encode.object [ ("username", Encode.string u), ("password", Encode.string p) ]
+        , expect = Http.expectJson GotLogin (Decode.field "token" Decode.string)
         }
 
 
@@ -101,6 +156,6 @@ main =
     Browser.element
         { init = init
         , update = update
-        , subscriptions = always Sub.none
+        , subscriptions = subscriptions
         , view = view
         }
