@@ -12,7 +12,7 @@ open Handlers
 
 let configureCors (builder : CorsPolicyBuilder) =
     builder
-        .WithOrigins("http://127.0.0.1:8000")
+        .WithOrigins("http://127.0.0.1:8000", "http://localhost:8000")
         .AllowAnyMethod()
         .AllowAnyHeader()
         .AllowCredentials()
