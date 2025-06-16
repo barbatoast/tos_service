@@ -1,7 +1,7 @@
 port module Main exposing (main)
 
 import Browser
-import Html exposing (Html, div, text, input, button)
+import Html exposing (Html, div, text, input, button, table, thead, tbody, tr, td, th)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput, onClick)
 import Http
@@ -20,17 +20,24 @@ port clearToken : () -> Cmd msg
 
 -- MODEL
 
+type alias User =
+    { id : String
+    , name : String
+    , email : String
+    }
+
 type alias Model =
     { username : String
     , password : String
     , token : Maybe String
     , message : String
+    , users : List User
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { username = "", password = "", token = Nothing, message = "" }
+    ( { username = "", password = "", token = Nothing, message = "", users = [] }
     , loadToken ()
     )
 
@@ -45,7 +52,32 @@ type Msg
     | Logout
     | ReceiveStoredToken String
     | MakeProtectedRequest
-    | GotProtectedResponse (Result Http.Error String)
+    | GotProtectedResponse (Result Http.Error (List User))
+
+
+-- DECODERS
+
+userDecoder : Decode.Decoder User
+userDecoder =
+    Decode.map3 User
+        (Decode.field "id" Decode.string)
+        (Decode.field "name" Decode.string)
+        (Decode.field "email" Decode.string)
+
+usersDecoder : Decode.Decoder (List User)
+usersDecoder =
+    Decode.list userDecoder
+
+
+-- HTTP
+
+loginRequest : String -> String -> Cmd Msg
+loginRequest u p =
+    Http.post
+        { url = "http://127.0.0.1:5000/login"
+        , body = Http.jsonBody <| Encode.object [ ("username", Encode.string u), ("password", Encode.string p) ]
+        , expect = Http.expectJson GotLogin (Decode.field "token" Decode.string)
+        }
 
 fetchProtectedResource : String -> Cmd Msg
 fetchProtectedResource token =
@@ -54,15 +86,10 @@ fetchProtectedResource token =
         , headers = [ Http.header "Authorization" ("Bearer " ++ token) ]
         , url = "http://127.0.0.1:5000/users"
         , body = Http.emptyBody
-        , expect = Http.expectString GotProtectedResponse
+        , expect = Http.expectJson GotProtectedResponse usersDecoder
         , timeout = Nothing
         , tracker = Nothing
         }
-
-
-subscriptions : Model -> Sub Msg
-subscriptions _ =
-    receiveToken ReceiveStoredToken
 
 
 -- UPDATE
@@ -86,7 +113,7 @@ update msg model =
             ( { model | message = "Login failed: " ++ Debug.toString err }, Cmd.none )
 
         Logout ->
-            ( { model | token = Nothing, message = "Logged out" }, clearToken () )
+            ( { model | token = Nothing, message = "Logged out", users = [] }, clearToken () )
 
         MakeProtectedRequest ->
             case model.token of
@@ -108,11 +135,11 @@ update msg model =
             , Cmd.none
             )
 
-        GotProtectedResponse (Ok body) ->
-            ( { model | message = "Protected call success: " ++ body }, Cmd.none )
+        GotProtectedResponse (Ok users) ->
+            ( { model | message = "Protected call success", users = users }, Cmd.none )
 
         GotProtectedResponse (Err _) ->
-            ( { model | message = "Protected call failed." }, Cmd.none )
+            ( { model | message = "Protected call failed.", users = [] }, Cmd.none )
 
 
 -- VIEW
@@ -131,22 +158,44 @@ view model =
                     , button [ onClick MakeProtectedRequest ] [ text "Make Protected API Call" ]
                     , button [ onClick Logout ] [ text "Logout" ]
                     ]
+
             Nothing ->
                 div [] [ text "🔒 Not logged in." ]
 
         , div [] [ text model.message ]
+        , viewUsers model.users
+        ]
+
+viewUsers : List User -> Html msg
+viewUsers users =
+    if List.isEmpty users then
+        text ""
+    else
+        table [ style "margin-top" "1em", style "border" "1px solid black", style "border-collapse" "collapse" ]
+            [ thead []
+                [ tr []
+                    [ th [ style "border" "1px solid black", style "padding" "0.5em" ] [ text "ID" ]
+                    , th [ style "border" "1px solid black", style "padding" "0.5em" ] [ text "Name" ]
+                    , th [ style "border" "1px solid black", style "padding" "0.5em" ] [ text "Email" ]
+                    ]
+                ]
+            , tbody [] (List.map viewUser users)
+            ]
+
+viewUser : User -> Html msg
+viewUser user =
+    tr []
+        [ td [ style "border" "1px solid black", style "padding" "0.5em" ] [ text user.id ]
+        , td [ style "border" "1px solid black", style "padding" "0.5em" ] [ text user.name ]
+        , td [ style "border" "1px solid black", style "padding" "0.5em" ] [ text user.email ]
         ]
 
 
--- HTTP
+-- SUBSCRIPTIONS
 
-loginRequest : String -> String -> Cmd Msg
-loginRequest u p =
-    Http.post
-        { url = "http://127.0.0.1:5000/login"
-        , body = Http.jsonBody <| Encode.object [ ("username", Encode.string u), ("password", Encode.string p) ]
-        , expect = Http.expectJson GotLogin (Decode.field "token" Decode.string)
-        }
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    receiveToken ReceiveStoredToken
 
 
 -- MAIN
