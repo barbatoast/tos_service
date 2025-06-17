@@ -39,7 +39,30 @@
     <div id="app"></div>
     <script src="main.js"></script>
     <script>
-      Elm.Main.init({ node: document.getElementById("app") });
+      document.addEventListener("DOMContentLoaded", function () {
+        const app = Elm.Main.init({ node: document.getElementById("app") });
+
+        // Save JWT to localStorage
+        app.ports.saveToken.subscribe(function (token) {
+          console.log("[JS] Saving token", token);
+          localStorage.setItem("jwt", token);
+        });
+
+        // Clear JWT from localStorage
+        app.ports.clearToken.subscribe(function () {
+          console.log("[JS] Clearing token");
+          localStorage.removeItem("jwt");
+        });
+
+        // Send token from localStorage to Elm right after init
+        const token = localStorage.getItem("jwt") || "";
+        console.log("[JS] Loaded token", token);
+        if (app.ports.receiveToken) {
+          app.ports.receiveToken.send(token);
+        } else {
+          console.error("Port receiveToken not defined");
+        }
+      });
     </script>
   </body>
 </html>
