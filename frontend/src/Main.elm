@@ -110,10 +110,6 @@ userDecoder =
         (Decode.field "name" Decode.string)
         (Decode.field "email" Decode.string)
 
-usersDecoder : Decode.Decoder (List User)
-usersDecoder =
-    Decode.list userDecoder
-
 
 -- HTTP
 
