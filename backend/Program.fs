@@ -27,11 +27,13 @@ let webApp: HttpHandler =
         POST >=> choose [
             route "/login" >=> loginHandler
             route "/user/add" >=> addUserHandler
+            route "/firm/add" >=> addFirmHandler
             route "/tos/publish" >=> publishTosHandler
             route "/tos/accept" >=> acceptTosHandler
         ]
         GET >=> choose [
             route "/users" >=> listUsersHandler
+            route "/firms" >=> listFirmsHandler
         ]
     ]
 

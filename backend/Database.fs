@@ -29,6 +29,11 @@ let initDb path =
         FOREIGN KEY(user_id) REFERENCES users(id),
         FOREIGN KEY(tos_id) REFERENCES tos_versions(id)
     );
+    CREATE TABLE IF NOT EXISTS law_firms (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
     """
     cmd.ExecuteNonQuery() |> ignore
 
@@ -111,3 +116,48 @@ let getUserCount (connectionString: string) =
     cmd.CommandText <- "SELECT COUNT(*) FROM users"
     let count = cmd.ExecuteScalar() :?> int64
     int count
+
+let addLawFirm (connectionString: string) (name: string) =
+    use conn = new SqliteConnection($"Data Source={connectionString}")
+    conn.Open()
+    let id = Guid.NewGuid()
+    let cmd = conn.CreateCommand()
+    cmd.CommandText <- "INSERT INTO law_firms (id, name, created_at) VALUES ($id, $name, $created_at)"
+    cmd.Parameters.AddWithValue("$id", id.ToString()) |> ignore
+    cmd.Parameters.AddWithValue("$name", name) |> ignore
+    cmd.Parameters.AddWithValue("$created_at", DateTime.UtcNow.ToString("o")) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+    id
+
+// Firms
+
+let getLawFirmCount (connectionString: string) =
+    use conn = new SqliteConnection($"Data Source={connectionString}")
+    conn.Open()
+
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- "SELECT COUNT(*) FROM law_firms"
+    let count = cmd.ExecuteScalar() :?> int64
+    int count
+
+let listLawFirms (connectionString: string) (page: int) (pageSize: int) =
+    let offset = (page - 1) * pageSize
+    use conn = new SqliteConnection($"Data Source={connectionString}")
+    conn.Open()
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- """
+        SELECT id, name, created_at
+        FROM law_firms
+        ORDER BY name
+        LIMIT $limit OFFSET $offset
+    """
+    cmd.Parameters.AddWithValue("$limit", pageSize) |> ignore
+    cmd.Parameters.AddWithValue("$offset", offset) |> ignore
+    use reader = cmd.ExecuteReader()
+    let results = ResizeArray<_>()
+    while reader.Read() do
+        results.Add
+            {| id = reader.GetString(0)
+               name = reader.GetString(1)
+               createdAt = reader.GetString(2) |}
+    List.ofSeq results

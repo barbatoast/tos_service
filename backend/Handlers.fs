@@ -71,3 +71,25 @@ let listUsersHandler : HttpHandler =
 
         return! json {| users = users; totalPages = totalPages |} next ctx
     }
+
+// Firms
+
+let addFirmHandler: HttpHandler =
+    fun next ctx -> task {
+        let! data = ctx.BindJsonAsync<{| name: string |}>()
+        let id = Database.addLawFirm (getDbConnectionString ctx) data.name
+        return! json {| id = id |} next ctx
+    }
+
+let listFirmsHandler : HttpHandler =
+    fun next ctx -> task {
+        let page = tryParsePage ctx.Request.Query "page"
+        let pageSize = 10
+
+        let connStr = getDbConnectionString ctx
+        let firms = Database.listLawFirms connStr page pageSize
+        let total = Database.getLawFirmCount connStr
+        let totalPages = (total + pageSize - 1) / pageSize
+
+        return! json {| firms = firms; totalPages = totalPages |} next ctx
+    }
