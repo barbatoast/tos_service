@@ -20,6 +20,8 @@ port clearToken : () -> Cmd msg
 
 -- MODEL
 
+-- MODEL
+
 type alias User =
     { id : String
     , name : String
@@ -32,12 +34,16 @@ type alias Model =
     , token : Maybe String
     , message : String
     , users : List User
+    , page : Int
+    , totalPages : Int
     }
 
 
+-- INIT
+
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { username = "", password = "", token = Nothing, message = "", users = [] }
+    ( { username = "", password = "", token = Nothing, message = "", users = [], page = 1, totalPages = 1 }
     , loadToken ()
     )
 
@@ -52,7 +58,47 @@ type Msg
     | Logout
     | ReceiveStoredToken String
     | MakeProtectedRequest
-    | GotProtectedResponse (Result Http.Error (List User))
+    | GotProtectedResponse (Result Http.Error (List User, Int))
+    | NextPage
+    | PrevPage
+
+
+-- DECODER
+
+usersWithPagesDecoder : Decode.Decoder (List User, Int)
+usersWithPagesDecoder =
+    Decode.map2 Tuple.pair
+        (Decode.field "users" (Decode.list userDecoder))
+        (Decode.field "totalPages" Decode.int)
+
+
+-- HTTP (UPDATED)
+
+fetchProtectedResource : String -> Int -> Cmd Msg
+fetchProtectedResource token page =
+    let
+        url = "http://127.0.0.1:5000/users?page=" ++ String.fromInt page
+    in
+    Http.request
+        { method = "GET"
+        , headers = [ Http.header "Authorization" ("Bearer " ++ token) ]
+        , url = url
+        , body = Http.emptyBody
+        , expect = Http.expectJson GotProtectedResponse usersWithPagesDecoder
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+
+
+-- VIEW (ADD PAGINATION CONTROLS)
+
+viewPagination : Model -> Html Msg
+viewPagination model =
+    div [ style "margin-top" "1em" ]
+        [ button [ onClick PrevPage, disabled (model.page <= 1) ] [ text "◀ Prev" ]
+        , text (" Page " ++ String.fromInt model.page ++ " of " ++ String.fromInt model.totalPages ++ " ")
+        , button [ onClick NextPage, disabled (model.page >= model.totalPages) ] [ text "Next ▶" ]
+        ]
 
 
 -- DECODERS
@@ -78,19 +124,6 @@ loginRequest u p =
         , body = Http.jsonBody <| Encode.object [ ("username", Encode.string u), ("password", Encode.string p) ]
         , expect = Http.expectJson GotLogin (Decode.field "token" Decode.string)
         }
-
-fetchProtectedResource : String -> Cmd Msg
-fetchProtectedResource token =
-    Http.request
-        { method = "GET"
-        , headers = [ Http.header "Authorization" ("Bearer " ++ token) ]
-        , url = "http://127.0.0.1:5000/users"
-        , body = Http.emptyBody
-        , expect = Http.expectJson GotProtectedResponse usersDecoder
-        , timeout = Nothing
-        , tracker = Nothing
-        }
-
 
 -- UPDATE
 
@@ -118,7 +151,7 @@ update msg model =
         MakeProtectedRequest ->
             case model.token of
                 Just token ->
-                    ( model, fetchProtectedResource token )
+                    ( model, fetchProtectedResource token model.page )
 
                 Nothing ->
                     ( { model | message = "Not logged in" }, Cmd.none )
@@ -135,11 +168,33 @@ update msg model =
             , Cmd.none
             )
 
-        GotProtectedResponse (Ok users) ->
-            ( { model | message = "Protected call success", users = users }, Cmd.none )
+        GotProtectedResponse (Ok (users, totalPages)) ->
+            ( { model
+                | message = "Protected call success"
+                , users = users
+                , totalPages = totalPages
+            }
+            , Cmd.none
+            )
 
         GotProtectedResponse (Err _) ->
             ( { model | message = "Protected call failed.", users = [] }, Cmd.none )
+
+        NextPage ->
+            let
+                newPage = model.page + 1
+            in
+            case model.token of
+                Just token -> ( { model | page = newPage }, fetchProtectedResource token newPage )
+                Nothing -> ( model, Cmd.none )
+
+        PrevPage ->
+            let
+                newPage = Basics.max 1 (model.page - 1)
+            in
+            case model.token of
+                Just token -> ( { model | page = newPage }, fetchProtectedResource token newPage )
+                Nothing -> ( model, Cmd.none )
 
 
 -- VIEW
@@ -164,6 +219,7 @@ view model =
 
         , div [] [ text model.message ]
         , viewUsers model.users
+        , viewPagination model
         ]
 
 viewUsers : List User -> Html msg

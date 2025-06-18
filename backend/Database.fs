@@ -75,18 +75,39 @@ let acceptTos (connectionString: string) (userId: Guid) (tosId: int) (userIp: st
     with ex ->
         Error $"Failed to insert ToS acceptance: {ex.Message}"
 
-let listUsers connectionString =
-    use conn = new SqliteConnection $"Data Source={connectionString}"
-    conn.Open()
-    use cmd = conn.CreateCommand()
-    cmd.CommandText <- "SELECT id, email, name FROM users"
-    use reader = cmd.ExecuteReader()
+let listUsers (connectionString: string) (page: int) (pageSize: int) =
+    let offset = (page - 1) * pageSize
 
+    use conn = new SqliteConnection($"Data Source={connectionString}")
+    conn.Open()
+
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- """
+        SELECT id, email, name
+        FROM users
+        ORDER BY name
+        LIMIT $limit OFFSET $offset
+    """
+    cmd.Parameters.AddWithValue("$limit", pageSize) |> ignore
+    cmd.Parameters.AddWithValue("$offset", offset) |> ignore
+
+    use reader = cmd.ExecuteReader()
     let results = ResizeArray<_>()
+
     while reader.Read() do
         let user =
             {| id = reader.GetString(0)
                email = reader.GetString(1)
                name = if not (reader.IsDBNull(2)) then reader.GetString(2) else null |}
         results.Add(user)
+
     List.ofSeq results
+
+let getUserCount (connectionString: string) =
+    use conn = new SqliteConnection($"Data Source={connectionString}")
+    conn.Open()
+
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- "SELECT COUNT(*) FROM users"
+    let count = cmd.ExecuteScalar() :?> int64
+    int count

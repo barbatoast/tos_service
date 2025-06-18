@@ -51,8 +51,23 @@ let acceptTosHandler : HttpHandler =
             return! RequestErrors.badRequest (text "Invalid GUID format") next ctx
     }
 
-let listUsersHandler: HttpHandler =
+let tryParsePage (query: IQueryCollection) (key: string) : int =
+    match query.TryGetValue(key) with
+    | true, v ->
+        match Int32.TryParse(v.ToString()) with
+        | true, value -> value
+        | false, _ -> 1
+    | false, _ -> 1
+
+let listUsersHandler : HttpHandler =
     fun next ctx -> task {
-        let result = Database.listUsers (getDbConnectionString ctx)
-        return! json result next ctx
+        let page = tryParsePage ctx.Request.Query "page"
+        let pageSize = 10
+
+        let connStr = getDbConnectionString ctx
+        let users = Database.listUsers connStr page pageSize
+        let total = Database.getUserCount connStr
+        let totalPages = (total + pageSize - 1) / pageSize
+
+        return! json {| users = users; totalPages = totalPages |} next ctx
     }
