@@ -85,11 +85,25 @@ let listFirmsHandler : HttpHandler =
     fun next ctx -> task {
         let page = tryParsePage ctx.Request.Query "page"
         let pageSize = 10
+        let query = ctx.TryGetQueryStringValue("query") |> Option.defaultValue ""
 
         let connStr = getDbConnectionString ctx
-        let firms = Database.listLawFirms connStr page pageSize
-        let total = Database.getLawFirmCount connStr
+        let firms = Database.listLawFirms connStr page pageSize query
+        let total = Database.getLawFirmCount connStr query
         let totalPages = (total + pageSize - 1) / pageSize
 
         return! json {| firms = firms; totalPages = totalPages |} next ctx
+    }
+
+// Lawyer Detail
+
+let getLawyerHandler (id: string) : HttpHandler =
+    fun next ctx -> task {
+        let connStr = getDbConnectionString ctx
+        match Database.getLawyerById connStr id with
+        | Some lawyer ->
+            return! json lawyer next ctx
+        | None ->
+            ctx.SetStatusCode 404
+            return! json {| error = "Lawyer not found" |} next ctx
     }

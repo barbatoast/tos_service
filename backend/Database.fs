@@ -131,16 +131,16 @@ let addLawFirm (connectionString: string) (name: string) =
 
 // Firms
 
-let getLawFirmCount (connectionString: string) =
+let getLawFirmCount (connectionString: string) (query: string) =
     use conn = new SqliteConnection($"Data Source={connectionString}")
     conn.Open()
-
     use cmd = conn.CreateCommand()
-    cmd.CommandText <- "SELECT COUNT(*) FROM law_firms"
+    cmd.CommandText <- "SELECT COUNT(*) FROM law_firms WHERE name LIKE $query"
+    cmd.Parameters.AddWithValue("$query", "%" + query + "%") |> ignore
     let count = cmd.ExecuteScalar() :?> int64
     int count
 
-let listLawFirms (connectionString: string) (page: int) (pageSize: int) =
+let listLawFirms (connectionString: string) (page: int) (pageSize: int) (query: string) =
     let offset = (page - 1) * pageSize
     use conn = new SqliteConnection($"Data Source={connectionString}")
     conn.Open()
@@ -148,9 +148,11 @@ let listLawFirms (connectionString: string) (page: int) (pageSize: int) =
     cmd.CommandText <- """
         SELECT id, name, created_at
         FROM law_firms
-        ORDER BY name
+        WHERE name LIKE $query
+        ORDER BY created_at DESC
         LIMIT $limit OFFSET $offset
     """
+    cmd.Parameters.AddWithValue("$query", "%" + query + "%") |> ignore
     cmd.Parameters.AddWithValue("$limit", pageSize) |> ignore
     cmd.Parameters.AddWithValue("$offset", offset) |> ignore
     use reader = cmd.ExecuteReader()
@@ -161,3 +163,18 @@ let listLawFirms (connectionString: string) (page: int) (pageSize: int) =
                name = reader.GetString(1)
                createdAt = reader.GetString(2) |}
     List.ofSeq results
+
+let getLawyerById (connectionString: string) (id: string) =
+    use conn = new SqliteConnection($"Data Source={connectionString}")
+    conn.Open()
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <- "SELECT name, email FROM users WHERE id = $id"
+    cmd.Parameters.AddWithValue("$id", id) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some
+            {| name = reader.GetString(0)
+               email = reader.GetString(1)
+               isAppUser = true |}
+    else
+        None

@@ -34,6 +34,7 @@ let webApp: HttpHandler =
         GET >=> choose [
             route "/users" >=> listUsersHandler
             route "/firms" >=> listFirmsHandler
+            routef "/users/%s" getLawyerHandler
         ]
     ]
 
